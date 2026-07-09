@@ -28,9 +28,10 @@ on:
         default: plan
 
 permissions:
-  id-token: write        # OIDC -> AWS
+  id-token: write         # OIDC -> AWS
   contents: read
-  pull-requests: write   # post plan comment
+  pull-requests: write    # post plan comment
+  security-events: write  # upload Checkov SARIF to the Security tab
 
 env:
   TF_VERSION: "1.9.5"
@@ -44,6 +45,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # -------------------------------------------------------- SECURITY SCAN ---
+  # Static IaC scan (Checkov). Advisory: soft-fails so it never blocks a merge,
+  # but findings show in the Actions log + the repo Security tab (SARIF).
+  # Promote to a hard gate by removing `soft_fail` once the baseline is triaged.
+  security-scan:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          framework: terraform
+          soft_fail: true
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+
+      - name: Upload SARIF to code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: checkov
+
   # ------------------------------------------------------------------ PLAN ---
   plan:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.command == 'plan')
