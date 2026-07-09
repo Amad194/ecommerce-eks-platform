@@ -75,7 +75,7 @@ External Secrets Operator → Kubernetes Secret → `envFrom`.
 ## CI/CD Pipeline
 | Diagram | Implementation |
 |---|---|
-| GitLab → Pipelines → Build & Test → Docker → Push to ECR | `.gitlab-ci.yml` |
+| Github → Pipelines → Build & Test → Docker → Push to ECR | `.github-ci.yml` |
 | Deploy to EKS (Argo CD / Helm) | GitOps tag-bump commit → Argo CD auto-sync |
 | (GitHub alternative) | `.github/workflows/ci.yaml` |
 
