@@ -225,7 +225,22 @@ module "addons" {
   cert_manager_role_arn       = module.irsa.cert_manager_role_arn
   external_secrets_role_arn   = module.irsa.external_secrets_role_arn
 
+  alertmanager_slack_webhook_url = var.alertmanager_slack_webhook_url
+  alertmanager_slack_channel     = var.alertmanager_slack_channel
+
   depends_on = [module.eks]
+}
+
+# ---- Security & compliance (account/region-level) --------------------------
+module "security" {
+  source = "../../modules/security"
+
+  name_prefix         = local.name_prefix
+  enable_guardduty    = var.enable_guardduty
+  enable_security_hub = var.enable_security_hub
+  enable_inspector    = var.enable_inspector
+  enable_cloudtrail   = var.enable_cloudtrail
+  tags                = local.tags
 }
 
 # ---- Application namespaces (Pod Security Standards: restricted) ------------

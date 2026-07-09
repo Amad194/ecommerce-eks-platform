@@ -5,3 +5,12 @@ output "ingress_nginx_namespace" {
 output "cluster_issuer_name" {
   value = "letsencrypt-prod"
 }
+
+output "grafana_url" {
+  value = "https://grafana.${var.domain_name}"
+}
+
+output "grafana_admin_password" {
+  value     = random_password.grafana.result
+  sensitive = true
+}

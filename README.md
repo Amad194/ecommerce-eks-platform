@@ -37,7 +37,9 @@ ecommerce-eks-platform/
 │       ├── waf/              # AWS WAF web ACL
 │       ├── irsa/             # IAM Roles for Service Accounts (add-ons)
 │       ├── addons/           # Helm releases: ingress-nginx, cert-manager,
-│       │                     #   external-dns, cluster-autoscaler, metrics-server
+│       │                     #   external-dns, cluster-autoscaler, metrics-server,
+│       │                     #   external-secrets, kube-prometheus-stack (monitoring)
+│       ├── security/         # GuardDuty, Security Hub, Inspector, CloudTrail
 │       └── argocd/           # Argo CD install + app-of-apps bootstrap
 ├── helm-charts/              # Centralized Helm charts (source of truth for workloads)
 │   ├── common/               # Library chart — shared deployment/service/ingress/hpa templates

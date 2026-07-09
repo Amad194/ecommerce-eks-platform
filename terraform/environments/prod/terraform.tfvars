@@ -16,6 +16,19 @@ acme_email         = "platform@example.com"
 gitops_repo_url        = "https://github.com/Amad194/ecommerce-eks-platform.git"
 gitops_target_revision = "HEAD"
 
+# --- Monitoring & alerting --------------------------------------------------
+# Paste a Slack incoming-webhook URL to route Alertmanager alerts to Slack.
+# Leave empty to disable Slack routing. (Prefer a *.tfvars.local or TF_VAR_ env
+# var so the secret never lands in git.)
+# alertmanager_slack_webhook_url = "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+alertmanager_slack_channel = "#alerts"
+
+# --- Security & compliance (all default to true) ----------------------------
+enable_guardduty    = true
+enable_security_hub = true
+enable_inspector    = true
+enable_cloudtrail   = true
+
 # --- Cost knobs -------------------------------------------------------------
 # For a cheaper dev/demo run, downsize:
 #   single_nat_gateway       = true

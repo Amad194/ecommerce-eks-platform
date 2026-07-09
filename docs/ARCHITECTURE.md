@@ -79,11 +79,28 @@ External Secrets Operator → Kubernetes Secret → `envFrom`.
 | Deploy to EKS (Argo CD / Helm) | GitOps tag-bump commit → Argo CD auto-sync |
 | (GitHub alternative) | `.github/workflows/ci.yaml` |
 
-## Monitoring & Security (roadmap hooks)
-- Prometheus/Grafana/Alertmanager: pods already emit `prometheus.io/scrape`
-  annotations; install `kube-prometheus-stack` as an additional add-on/Application.
-- GuardDuty / Security Hub / Inspector / CloudTrail: enable at the account level
-  (add a `modules/security` — WAF + CloudWatch are already wired here).
+## Monitoring & Observability
+| Diagram | Implementation (`modules/addons`) |
+|---|---|
+| Prometheus | `kube-prometheus-stack` — scrapes every pod via `prometheus.io/scrape` (annotation-based `additionalScrapeConfigs`) |
+| Grafana | same chart — Ingress at `grafana.<domain>` (TLS via cert-manager), gp3-backed persistence; admin password is a Terraform output |
+| Alertmanager | same chart — gp3-backed; Slack receiver enabled when `alertmanager_slack_webhook_url` is set |
+| Notifications (Slack / Email) | Alertmanager receivers (`alertmanager_slack_channel`); add an `email_configs` receiver for SES/SendGrid |
+
+A `gp3` StorageClass is created as the cluster default to back the stateful
+monitoring components.
+
+## Security & Compliance
+| Diagram | Implementation (`modules/security`) |
+|---|---|
+| AWS WAF | `modules/waf` (REGIONAL + CLOUDFRONT web ACLs) |
+| GuardDuty | `aws_guardduty_detector` (+ S3, EKS audit, EBS malware datasources) |
+| Security Hub | `aws_securityhub_account` + AWS Foundational + CIS standards |
+| Inspector | `aws_inspector2_enabler` (ECR image + EC2 host scanning) |
+| CloudTrail (Audit Logs) | multi-region trail → encrypted, versioned, private S3 bucket, log-file validation |
+
+Each control is independently toggleable (`enable_guardduty`, `enable_security_hub`,
+`enable_inspector`, `enable_cloudtrail`) — all default `true`.
 
 ## Deploy ordering (dependency graph)
 ```

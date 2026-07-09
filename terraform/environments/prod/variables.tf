@@ -89,6 +89,36 @@ variable "gitops_target_revision" {
   default = "HEAD"
 }
 
+# ---- Monitoring -------------------------------------------------------------
+variable "alertmanager_slack_webhook_url" {
+  type        = string
+  description = "Slack incoming-webhook URL for Alertmanager alerts (empty = disabled)."
+  default     = ""
+  sensitive   = true
+}
+variable "alertmanager_slack_channel" {
+  type    = string
+  default = "#alerts"
+}
+
+# ---- Security & compliance --------------------------------------------------
+variable "enable_guardduty" {
+  type    = bool
+  default = true
+}
+variable "enable_security_hub" {
+  type    = bool
+  default = true
+}
+variable "enable_inspector" {
+  type    = bool
+  default = true
+}
+variable "enable_cloudtrail" {
+  type    = bool
+  default = true
+}
+
 # ---- Data store sizing (override in tfvars for cost/scale) ------------------
 variable "rds_instance_class" {
   type    = string

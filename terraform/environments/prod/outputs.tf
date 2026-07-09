@@ -70,3 +70,21 @@ output "argocd_url" {
 output "argocd_admin_password_cmd" {
   value = module.argocd.initial_admin_secret_hint
 }
+
+# ---- Monitoring -------------------------------------------------------------
+output "grafana_url" {
+  value = module.addons.grafana_url
+}
+output "grafana_admin_password" {
+  description = "Grafana admin password (user: admin)."
+  value       = module.addons.grafana_admin_password
+  sensitive   = true
+}
+
+# ---- Security ---------------------------------------------------------------
+output "cloudtrail_bucket" {
+  value = module.security.cloudtrail_bucket
+}
+output "guardduty_detector_id" {
+  value = module.security.guardduty_detector_id
+}

@@ -15,24 +15,38 @@ variable "external_dns_role_arn" { type = string }
 variable "cert_manager_role_arn" { type = string }
 variable "external_secrets_role_arn" { type = string }
 
+# ---- Monitoring -------------------------------------------------------------
+variable "alertmanager_slack_webhook_url" {
+  type        = string
+  description = "Slack incoming-webhook URL for Alertmanager. Empty disables Slack routing."
+  default     = ""
+  sensitive   = true
+}
+variable "alertmanager_slack_channel" {
+  type    = string
+  default = "#alerts"
+}
+
 variable "versions" {
   description = "Pinned Helm chart versions for each add-on."
   type = object({
     metrics_server     = string
     lb_controller      = string
     cluster_autoscaler = string
-    ingress_nginx      = string
-    cert_manager       = string
-    external_dns       = string
-    external_secrets   = string
+    ingress_nginx         = string
+    cert_manager          = string
+    external_dns          = string
+    external_secrets      = string
+    kube_prometheus_stack = string
   })
   default = {
-    metrics_server     = "3.12.2"
-    lb_controller      = "1.8.1"
-    cluster_autoscaler = "9.37.0"
-    ingress_nginx      = "4.11.2"
-    cert_manager       = "v1.15.3"
-    external_dns       = "1.15.0"
-    external_secrets   = "0.10.4"
+    metrics_server        = "3.12.2"
+    lb_controller         = "1.8.1"
+    cluster_autoscaler    = "9.37.0"
+    ingress_nginx         = "4.11.2"
+    cert_manager          = "v1.15.3"
+    external_dns          = "1.15.0"
+    external_secrets      = "0.10.4"
+    kube_prometheus_stack = "62.7.0"
   }
 }

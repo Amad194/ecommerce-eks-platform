@@ -247,3 +247,162 @@ resource "helm_release" "external_dns" {
     }
   })]
 }
+
+# ---- Default gp3 StorageClass (for stateful add-ons like Prometheus) --------
+resource "kubectl_manifest" "gp3_storageclass" {
+  yaml_body = yamlencode({
+    apiVersion = "storage.k8s.io/v1"
+    kind       = "StorageClass"
+    metadata = {
+      name        = "gp3"
+      annotations = { "storageclass.kubernetes.io/is-default-class" = "true" }
+    }
+    provisioner          = "ebs.csi.aws.com"
+    parameters           = { type = "gp3", encrypted = "true" }
+    volumeBindingMode    = "WaitForFirstConsumer"
+    allowVolumeExpansion = true
+    reclaimPolicy        = "Delete"
+  })
+}
+
+# ---- Monitoring & Observability: kube-prometheus-stack ----------------------
+# Prometheus + Grafana + Alertmanager. Prometheus scrapes any pod carrying the
+# prometheus.io/scrape annotation (which every workload chart sets).
+resource "random_password" "grafana" {
+  length  = 20
+  special = false
+}
+
+locals {
+  grafana_host  = "grafana.${var.domain_name}"
+  slack_enabled = var.alertmanager_slack_webhook_url != ""
+
+  # Empty when Slack is disabled -> the "slack" receiver becomes a no-op.
+  slack_configs = local.slack_enabled ? [{
+    api_url       = var.alertmanager_slack_webhook_url
+    channel       = var.alertmanager_slack_channel
+    send_resolved = true
+    title         = "{{ .CommonLabels.alertname }} ({{ .Status }})"
+    text          = "{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}"
+  }] : []
+
+  # Literal tuple (no top-level conditional) to avoid type-unification issues.
+  alertmanager_receivers = [
+    { name = "null", slack_configs = [] },
+    { name = "slack", slack_configs = local.slack_configs },
+  ]
+  alertmanager_default_receiver = local.slack_enabled ? "slack" : "null"
+}
+
+resource "helm_release" "kube_prometheus_stack" {
+  name             = "kube-prometheus-stack"
+  repository       = "https://prometheus-community.github.io/helm-charts"
+  chart            = "kube-prometheus-stack"
+  version          = var.versions.kube_prometheus_stack
+  namespace        = "monitoring"
+  create_namespace = true
+
+  # Base config (structured).
+  values = [
+    yamlencode({
+      grafana = {
+        adminPassword = random_password.grafana.result
+        defaultDashboardsTimezone = "utc"
+        persistence = {
+          enabled          = true
+          storageClassName = "gp3"
+          size             = "10Gi"
+        }
+        ingress = {
+          enabled          = true
+          ingressClassName = "nginx"
+          annotations = {
+            "cert-manager.io/cluster-issuer"            = "letsencrypt-prod"
+            "external-dns.alpha.kubernetes.io/hostname" = local.grafana_host
+            "nginx.ingress.kubernetes.io/ssl-redirect"  = "true"
+          }
+          hosts = [local.grafana_host]
+          tls   = [{ secretName = "grafana-tls", hosts = [local.grafana_host] }]
+        }
+      }
+
+      prometheus = {
+        prometheusSpec = {
+          retention = "15d"
+          # Discover ServiceMonitors/PodMonitors/Rules from ALL namespaces.
+          serviceMonitorSelectorNilUsesHelmValues = false
+          podMonitorSelectorNilUsesHelmValues     = false
+          ruleSelectorNilUsesHelmValues           = false
+          storageSpec = {
+            volumeClaimTemplate = {
+              spec = {
+                storageClassName = "gp3"
+                accessModes      = ["ReadWriteOnce"]
+                resources        = { requests = { storage = "50Gi" } }
+              }
+            }
+          }
+        }
+      }
+
+      alertmanager = {
+        alertmanagerSpec = {
+          storage = {
+            volumeClaimTemplate = {
+              spec = {
+                storageClassName = "gp3"
+                accessModes      = ["ReadWriteOnce"]
+                resources        = { requests = { storage = "5Gi" } }
+              }
+            }
+          }
+        }
+        config = {
+          global = { resolve_timeout = "5m" }
+          route = {
+            group_by        = ["alertname", "namespace"]
+            group_wait      = "30s"
+            group_interval  = "5m"
+            repeat_interval = "3h"
+            receiver        = local.alertmanager_default_receiver
+          }
+          receivers = local.alertmanager_receivers
+        }
+      }
+    }),
+
+    # Annotation-based pod scraping (honours prometheus.io/{scrape,port,path}).
+    # Written as literal YAML so the relabel regexes stay intact.
+    <<-EOT
+    prometheus:
+      prometheusSpec:
+        additionalScrapeConfigs:
+          - job_name: kubernetes-pods
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                action: keep
+                regex: "true"
+              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                action: replace
+                target_label: __metrics_path__
+                regex: (.+)
+              - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                action: replace
+                regex: ([^:]+)(?::\d+)?;(\d+)
+                replacement: $1:$2
+                target_label: __address__
+              - action: labelmap
+                regex: __meta_kubernetes_pod_label_(.+)
+              - source_labels: [__meta_kubernetes_namespace]
+                action: replace
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_pod_name]
+                action: replace
+                target_label: pod
+    EOT
+  ]
+
+  depends_on = [kubectl_manifest.gp3_storageclass]
+}
