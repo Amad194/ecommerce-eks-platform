@@ -1,0 +1,11 @@
+# Code owners — auto-requested for review on matching PRs.
+# The deploy-critical paths are the Helm charts (image tags Argo CD syncs)
+# and the Terraform/GitOps definitions.
+
+# Default owner for everything
+*               @Amad194
+
+# Deploy-critical: image-tag bumps land here and Argo CD applies them
+/helm-charts/   @Amad194
+/argocd/        @Amad194
+/terraform/     @Amad194
