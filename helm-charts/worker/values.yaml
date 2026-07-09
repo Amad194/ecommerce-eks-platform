@@ -1,0 +1,105 @@
+# Async worker — RabbitMQ consumers. Namespace: worker.
+# No inbound traffic: no Service, no Ingress. Exposes a health/metrics port.
+nameOverride: ""
+fullnameOverride: "worker"
+
+replicaCount: 2
+
+image:
+  repository: REPLACE_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/worker
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: "worker"
+  annotations: {}
+  automount: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9000"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+containerPort: 9000
+
+# Consumers are not reachable — disable Service and Ingress.
+service:
+  enabled: false
+ingress:
+  enabled: false
+
+# Example: run the queue consumer.
+command: ["/app/worker"]
+args: ["--queues", "orders,email,indexing", "--concurrency", "10"]
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# Scale consumers on CPU; swap to KEDA + queue depth for event-driven scaling.
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 0
+
+probes:
+  enabled: true
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readiness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 15
+
+config:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef: aws-secrets-manager
+  data:
+    - secretKey: AMQP_URL
+      remoteRef: { key: ecommerce-prod/mq/rabbitmq, property: amqps_endpoint }
+    - secretKey: AMQP_USER
+      remoteRef: { key: ecommerce-prod/mq/rabbitmq, property: username }
+    - secretKey: AMQP_PASSWORD
+      remoteRef: { key: ecommerce-prod/mq/rabbitmq, property: password }
+    - secretKey: DB_HOST
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: host }
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: password }
+
+envFromSecrets: []
+env: []
+
+networkPolicy:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

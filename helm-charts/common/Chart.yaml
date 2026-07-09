@@ -1,0 +1,8 @@
+apiVersion: v2
+name: common
+description: >-
+  Library chart with the shared, hardened templates (Deployment, Service,
+  Ingress, HPA, ServiceAccount, ConfigMap, NetworkPolicy) used by every
+  workload chart in this platform. Not deployed on its own.
+type: library
+version: 0.1.0

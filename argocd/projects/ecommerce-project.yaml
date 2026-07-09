@@ -1,0 +1,25 @@
+# AppProject scoping the e-commerce workloads.
+# Terraform (modules/argocd) also applies an equivalent project during bootstrap;
+# this file is the version-controlled source of truth Argo CD reconciles.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ecommerce
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: E-commerce platform workloads
+  sourceRepos:
+    - "https://github.com/Amad194/ecommerce-eks-platform.git"
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true

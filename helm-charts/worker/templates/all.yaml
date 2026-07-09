@@ -1,0 +1,13 @@
+{{ include "common.serviceaccount" . }}
+---
+{{ include "common.externalsecret" . }}
+---
+{{ include "common.configmap" . }}
+---
+{{ include "common.deployment" . }}
+---
+{{ include "common.service" . }}
+---
+{{ include "common.hpa" . }}
+---
+{{ include "common.networkpolicy" . }}

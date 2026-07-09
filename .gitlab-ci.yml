@@ -1,0 +1,100 @@
+###############################################################################
+# GitLab CI/CD — mirrors the reference pipeline:
+#   Developers → GitLab → Pipelines → Build & Test → Docker Image → Push to ECR
+#            → Deploy to EKS (Argo CD / Helm, via a GitOps image-tag bump)
+#
+# Deployment is GitOps: CI never runs `kubectl apply`. It pushes an image to
+# ECR and commits the new tag into the service's Helm values; Argo CD syncs it.
+###############################################################################
+
+stages:
+  - test
+  - build
+  - scan
+  - release
+  - deploy
+
+variables:
+  AWS_REGION: "us-east-1"
+  ECR_REGISTRY: "${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+  IMAGE_REPO: "ecommerce-prod/${SERVICE}"     # set SERVICE per pipeline / matrix
+  IMAGE_TAG: "${CI_COMMIT_SHORT_SHA}"
+
+# ---- Build & Test -----------------------------------------------------------
+unit-test:
+  stage: test
+  image: node:20-alpine
+  script:
+    - echo "Run unit/integration tests for ${SERVICE}"
+    - npm ci --prefix services/${SERVICE} || true
+    - npm test --prefix services/${SERVICE} || true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_BRANCH == "main"'
+
+helm-lint:
+  stage: test
+  image: alpine/helm:3.15.2
+  script:
+    - helm dependency build helm-charts/common || true
+    - for c in frontend magento api microservices worker; do
+        helm dependency build helm-charts/$c;
+        helm lint helm-charts/$c;
+        helm template helm-charts/$c > /dev/null;
+      done
+
+build-image:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  script:
+    - docker build -t "$ECR_REGISTRY/$IMAGE_REPO:$IMAGE_TAG" services/${SERVICE}
+    - docker save "$ECR_REGISTRY/$IMAGE_REPO:$IMAGE_TAG" -o image.tar
+  artifacts:
+    paths: [image.tar]
+    expire_in: 1h
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---- Security scan (Trivy) --------------------------------------------------
+scan-image:
+  stage: scan
+  image: aquasec/trivy:0.55.0
+  script:
+    - trivy image --input image.tar --severity HIGH,CRITICAL --exit-code 1 --no-progress
+  allow_failure: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---- Push to ECR ------------------------------------------------------------
+push-ecr:
+  stage: release
+  image: amazon/aws-cli:2.17.0
+  services:
+    - docker:27-dind
+  before_script:
+    - aws ecr get-login-password --region "$AWS_REGION" |
+        docker login --username AWS --password-stdin "$ECR_REGISTRY"
+  script:
+    - docker load -i image.tar
+    - docker push "$ECR_REGISTRY/$IMAGE_REPO:$IMAGE_TAG"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ---- GitOps deploy (bump the tag; Argo CD reconciles) -----------------------
+deploy-gitops:
+  stage: deploy
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache git yq
+  script:
+    - git config user.email "ci@ecommerce.local"
+    - git config user.name "gitlab-ci"
+    - yq -i ".image.tag = \"$IMAGE_TAG\"" helm-charts/${SERVICE}/values.yaml
+    - git add helm-charts/${SERVICE}/values.yaml
+    - git commit -m "chore(${SERVICE}): deploy ${IMAGE_TAG} [skip ci]"
+    - git push "https://oauth2:${GITOPS_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'

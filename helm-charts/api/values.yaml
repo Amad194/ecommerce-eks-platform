@@ -1,0 +1,114 @@
+# API service (Laravel / Node.js). Namespace: api.
+nameOverride: ""
+fullnameOverride: "api"
+
+replicaCount: 3
+
+image:
+  repository: REPLACE_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/api
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: "api"
+  annotations: {}
+  automount: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+containerPort: 8080
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: api.example.com
+  path: /
+  pathType: Prefix
+  tls: true
+  clusterIssuer: letsencrypt-prod
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+probes:
+  enabled: true
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 15
+    periodSeconds: 15
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+config:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef: aws-secrets-manager
+  data:
+    - secretKey: DB_HOST
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: host }
+    - secretKey: DB_PORT
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: port }
+    - secretKey: DB_NAME
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: dbname }
+    - secretKey: DB_USER
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: username }
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: password }
+    - secretKey: REDIS_HOST
+      remoteRef: { key: ecommerce-prod/elasticache/redis, property: host }
+    - secretKey: REDIS_AUTH
+      remoteRef: { key: ecommerce-prod/elasticache/redis, property: auth_token }
+
+envFromSecrets: []
+env: []
+
+networkPolicy:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

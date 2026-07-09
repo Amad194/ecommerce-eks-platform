@@ -1,0 +1,104 @@
+# Frontend — React / Next.js storefront. Namespace: frontend.
+nameOverride: ""
+fullnameOverride: "frontend"
+
+replicaCount: 3
+
+image:
+  # <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/frontend
+  repository: REPLACE_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/frontend
+  tag: ""              # set by CI to the git SHA / release tag
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: "frontend"
+  annotations: {}
+  automount: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+containerPort: 3000
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: shop.example.com
+  path: /
+  pathType: Prefix
+  tls: true
+  clusterIssuer: letsencrypt-prod
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+probes:
+  enabled: true
+  liveness:
+    path: /
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readiness:
+    path: /
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# Non-secret config -> ConfigMap
+config:
+  NODE_ENV: "production"
+  NEXT_PUBLIC_API_BASE_URL: "https://api.example.com"
+  NEXT_PUBLIC_CDN_URL: "https://cdn.example.com"
+
+# Secrets synced from AWS Secrets Manager via External Secrets Operator
+externalSecret:
+  enabled: false
+  refreshInterval: 1h
+  secretStoreRef: aws-secrets-manager
+  data: []
+
+envFromSecrets: []
+env: []
+
+networkPolicy:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

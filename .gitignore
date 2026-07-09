@@ -1,0 +1,36 @@
+# ---- Terraform ----
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars.local
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform.lock.hcl.bak
+
+# Keep the lock files (recommended) — comment out the next line to ignore them
+# .terraform.lock.hcl
+
+# ---- Helm ----
+**/charts/*.tgz
+**/Chart.lock
+
+# ---- Secrets / creds ----
+*.pem
+*.key
+.env
+.env.*
+kubeconfig*
+*-kubeconfig
+
+# ---- Editor / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,56 @@
+# ApplicationSet — fans out into one Argo CD Application per Helm chart.
+# Each app deploys helm-charts/<name> into its namespace with automated sync,
+# self-heal, and prune. Add a service here and it's deployed on next reconcile.
+#
+# IMPORTANT: repoURL below must match `gitops_repo_url` in your terraform.tfvars.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ecommerce-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - name: frontend
+            namespace: frontend
+          - name: magento
+            namespace: magento
+          - name: api
+            namespace: api
+          - name: microservices
+            namespace: services
+          - name: worker
+            namespace: worker
+  template:
+    metadata:
+      name: "{{.name}}"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: ecommerce
+      source:
+        repoURL: "https://github.com/Amad194/ecommerce-eks-platform.git"
+        targetRevision: HEAD
+        path: "helm-charts/{{.name}}"
+        helm:
+          valueFiles:
+            - values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{.namespace}}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

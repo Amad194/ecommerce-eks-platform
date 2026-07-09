@@ -1,0 +1,10 @@
+apiVersion: v2
+name: magento
+description: Magento commerce backend (PHP-FPM) — catalog, checkout, admin.
+type: application
+version: 0.1.0
+appVersion: "2.4.7"
+dependencies:
+  - name: common
+    version: 0.1.0
+    repository: "file://../common"

@@ -1,0 +1,100 @@
+# Domain microservices (Go / Python / Node.js). Namespace: services.
+# Internal only — reached by the API/frontend inside the cluster (no ingress).
+nameOverride: ""
+fullnameOverride: "microservices"
+
+replicaCount: 2
+
+image:
+  repository: REPLACE_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/microservices
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: "microservices"
+  annotations: {}
+  automount: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+containerPort: 8080
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 80
+
+probes:
+  enabled: true
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+config:
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef: aws-secrets-manager
+  data:
+    - secretKey: DB_HOST
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: host }
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: password }
+    - secretKey: REDIS_HOST
+      remoteRef: { key: ecommerce-prod/elasticache/redis, property: host }
+    - secretKey: AMQP_URL
+      remoteRef: { key: ecommerce-prod/mq/rabbitmq, property: amqps_endpoint }
+
+envFromSecrets: []
+env: []
+
+networkPolicy:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

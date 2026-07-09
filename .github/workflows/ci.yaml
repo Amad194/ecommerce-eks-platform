@@ -1,0 +1,76 @@
+# GitHub Actions equivalent of the GitLab pipeline (build → scan → push → GitOps).
+# Assumes an OIDC role for AWS (no long-lived keys) and a matrix over services.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  id-token: write   # for AWS OIDC
+  contents: write   # for the GitOps tag bump commit
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: { version: v3.15.2 }
+      - name: Lint & template all charts
+        run: |
+          for c in frontend magento api microservices worker; do
+            helm dependency build "helm-charts/$c"
+            helm lint "helm-charts/$c"
+            helm template "helm-charts/$c" > /dev/null
+          done
+
+  build-scan-push:
+    if: github.ref == 'refs/heads/main'
+    needs: helm-lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [frontend, magento, api, microservices, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build image
+        run: |
+          IMG="${{ steps.ecr.outputs.registry }}/ecommerce-prod/${{ matrix.service }}:${GITHUB_SHA::7}"
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+          docker build -t "$IMG" "services/${{ matrix.service }}"
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.IMG }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+      - name: Push image
+        run: docker push "$IMG"
+
+  gitops-bump:
+    if: github.ref == 'refs/heads/main'
+    needs: build-scan-push
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bump image tags & commit
+        run: |
+          TAG="${GITHUB_SHA::7}"
+          for c in frontend magento api microservices worker; do
+            sed -i "s|^  tag: .*|  tag: \"$TAG\"|" "helm-charts/$c/values.yaml"
+          done
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git commit -am "chore: deploy $TAG [skip ci]" || echo "no changes"
+          git push

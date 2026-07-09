@@ -1,0 +1,31 @@
+# Root "app-of-apps" — the single Application Terraform bootstraps.
+# It syncs everything under argocd/applications/ (currently the ApplicationSet
+# that fans out into the 5 workload Applications).
+#
+# Terraform (modules/argocd) applies an equivalent Application automatically;
+# this file lets you re-bootstrap by hand:
+#     kubectl apply -f argocd/app-of-apps.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ecommerce
+  source:
+    repoURL: "https://github.com/Amad194/ecommerce-eks-platform.git"
+    targetRevision: HEAD
+    path: argocd/applications
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

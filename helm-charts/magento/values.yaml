@@ -1,0 +1,122 @@
+# Magento commerce backend (PHP-FPM). Namespace: magento.
+nameOverride: ""
+fullnameOverride: "magento"
+
+replicaCount: 3
+
+image:
+  repository: REPLACE_ACCOUNT.dkr.ecr.us-east-1.amazonaws.com/ecommerce-prod/magento
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: "magento"
+  annotations: {}
+  automount: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  # Magento/PHP writes to var/, generated/, pub/static at runtime.
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+containerPort: 8080
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: admin.example.com
+  path: /
+  pathType: Prefix
+  tls: true
+  clusterIssuer: letsencrypt-prod
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "64m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 15
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 75
+
+probes:
+  enabled: true
+  liveness:
+    path: /health_check.php
+    initialDelaySeconds: 45
+    periodSeconds: 20
+  readiness:
+    path: /health_check.php
+    initialDelaySeconds: 20
+    periodSeconds: 10
+
+config:
+  MAGE_MODE: "production"
+  PHP_MEMORY_LIMIT: "2G"
+  OPENSEARCH_INDEX_PREFIX: "magento"
+
+# All backing-service credentials come from AWS Secrets Manager.
+externalSecret:
+  enabled: true
+  refreshInterval: 1h
+  secretStoreRef: aws-secrets-manager
+  data:
+    - secretKey: DB_HOST
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: host }
+    - secretKey: DB_PORT
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: port }
+    - secretKey: DB_NAME
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: dbname }
+    - secretKey: DB_USER
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: username }
+    - secretKey: DB_PASSWORD
+      remoteRef: { key: ecommerce-prod/rds/mysql, property: password }
+    - secretKey: REDIS_HOST
+      remoteRef: { key: ecommerce-prod/elasticache/redis, property: host }
+    - secretKey: REDIS_AUTH
+      remoteRef: { key: ecommerce-prod/elasticache/redis, property: auth_token }
+    - secretKey: OPENSEARCH_HOST
+      remoteRef: { key: ecommerce-prod/opensearch, property: endpoint }
+    - secretKey: AMQP_URL
+      remoteRef: { key: ecommerce-prod/mq/rabbitmq, property: amqps_endpoint }
+
+envFromSecrets: []
+env: []
+
+networkPolicy:
+  enabled: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
