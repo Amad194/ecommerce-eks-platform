@@ -52,8 +52,9 @@ ecommerce-eks-platform/
 │   ├── projects/             # AppProject
 │   ├── app-of-apps.yaml      # Root Application
 │   └── applications/         # One Application per Helm chart
-├── .github/workflows/        # CI (build/test/scan) example
-└── .gitlab-ci.yml            # GitLab CI/CD pipeline (matches the reference diagram)
+├── .github/workflows/        # This repo's CI: validation only (tf/helm/yaml)
+└── ci-templates/             # GitHub Actions pipeline the APP repos use
+                              #   (build → scan → push ECR → PR bump here)
 ```
 
 ## Prerequisites

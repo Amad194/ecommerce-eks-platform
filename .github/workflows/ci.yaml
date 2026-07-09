@@ -1,27 +1,49 @@
-# GitHub Actions equivalent of the GitLab pipeline (build → scan → push → GitOps).
-# Assumes an OIDC role for AWS (no long-lived keys) and a matrix over services.
-name: ci
+# Validation CI for the INFRA + GitOps config repo.
+# This repo holds no application source, so it never builds/pushes images.
+# It only proves the IaC + charts + GitOps manifests are well-formed.
+# Image build/scan/push + tag bumps happen in the APP repos (see ci-templates/).
+name: validate
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
 permissions:
-  id-token: write   # for AWS OIDC
-  contents: write   # for the GitOps tag bump commit
-
-env:
-  AWS_REGION: us-east-1
+  contents: read
 
 jobs:
-  helm-lint:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+      - name: Format check
+        run: terraform fmt -check -recursive
+      - name: Validate (prod root)
+        working-directory: terraform/environments/prod
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+  tflint:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: terraform-linters/setup-tflint@v4
+      - run: tflint --recursive --format compact
+
+  helm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
-        with: { version: v3.15.2 }
-      - name: Lint & template all charts
+        with:
+          version: v3.15.2
+      - name: Lint + render all charts
         run: |
           for c in frontend magento api microservices worker; do
             helm dependency build "helm-charts/$c"
@@ -29,48 +51,20 @@ jobs:
             helm template "helm-charts/$c" > /dev/null
           done
 
-  build-scan-push:
-    if: github.ref == 'refs/heads/main'
-    needs: helm-lint
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        service: [frontend, magento, api, microservices, worker]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-      - uses: aws-actions/amazon-ecr-login@v2
-        id: ecr
-      - name: Build image
-        run: |
-          IMG="${{ steps.ecr.outputs.registry }}/ecommerce-prod/${{ matrix.service }}:${GITHUB_SHA::7}"
-          echo "IMG=$IMG" >> "$GITHUB_ENV"
-          docker build -t "$IMG" "services/${{ matrix.service }}"
-      - name: Trivy scan
-        uses: aquasecurity/trivy-action@0.24.0
-        with:
-          image-ref: ${{ env.IMG }}
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-      - name: Push image
-        run: docker push "$IMG"
-
-  gitops-bump:
-    if: github.ref == 'refs/heads/main'
-    needs: build-scan-push
+  gitops-manifests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Bump image tags & commit
+      - name: YAML sanity (argocd/)
         run: |
-          TAG="${GITHUB_SHA::7}"
-          for c in frontend magento api microservices worker; do
-            sed -i "s|^  tag: .*|  tag: \"$TAG\"|" "helm-charts/$c/values.yaml"
-          done
-          git config user.name github-actions
-          git config user.email actions@github.com
-          git commit -am "chore: deploy $TAG [skip ci]" || echo "no changes"
-          git push
+          python -m pip install --quiet pyyaml
+          python - <<'PY'
+          import glob, sys, yaml
+          bad = 0
+          for f in glob.glob("argocd/**/*.yaml", recursive=True):
+              try:
+                  list(yaml.safe_load_all(open(f, encoding="utf-8")))
+              except Exception as e:
+                  bad += 1; print("FAIL", f, e)
+          sys.exit(1 if bad else 0)
+          PY

@@ -1,0 +1,95 @@
+# ============================================================================
+# APP-REPO pipeline (GitHub Actions).
+# Copy into an application repo (frontend / magento / api / microservices /
+# worker) as .github/workflows/deploy.yml.
+#
+# Flow:  test -> build -> Trivy scan -> push to ECR:<sha>
+#        -> open a PR against the CONFIG repo bumping helm-charts/<svc>/values.yaml
+#           (Argo CD deploys automatically when that PR is merged)
+#
+# Required secrets in the APP repo:
+#   AWS_CI_ROLE_ARN    - IAM role (OIDC) allowed to push to ECR
+#   CONFIG_REPO_TOKEN  - PAT / GitHub App token with `repo` write on the config repo
+# ============================================================================
+name: build-and-deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write     # AWS OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  SERVICE: frontend                              # <-- set to THIS repo's service
+  CONFIG_REPO: Amad194/ecommerce-eks-platform    # the infra/GitOps repo
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: echo "TODO - run unit/integration tests for ${SERVICE}"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CI_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build image
+        run: |
+          IMG="${{ steps.ecr.outputs.registry }}/ecommerce-prod/${SERVICE}:${{ steps.meta.outputs.tag }}"
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+          docker build -t "$IMG" .
+
+      - name: Trivy scan (block on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.IMG }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Push image
+        run: docker push "$IMG"
+
+  bump:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout config repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CONFIG_REPO }}
+          token: ${{ secrets.CONFIG_REPO_TOKEN }}
+
+      - name: Bump image tag and open PR
+        env:
+          GH_TOKEN: ${{ secrets.CONFIG_REPO_TOKEN }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          BRANCH="deploy/${SERVICE}-${TAG}"
+          git switch -c "$BRANCH"
+          # Update only the image.tag line in this service's values.yaml
+          sed -i "s|^  tag: .*|  tag: \"${TAG}\"|" "helm-charts/${SERVICE}/values.yaml"
+          git config user.name  "ci-bot"
+          git config user.email "ci@ecommerce.local"
+          git commit -am "deploy(${SERVICE}): ${TAG}"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --repo "${CONFIG_REPO}" \
+            --base main --head "$BRANCH" \
+            --title "deploy(${SERVICE}): ${TAG}" \
+            --body "Automated image bump for **${SERVICE}** to \`${TAG}\`. Merging deploys via Argo CD."

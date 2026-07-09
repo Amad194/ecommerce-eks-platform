@@ -72,12 +72,25 @@ External Secrets Operator → Kubernetes Secret → `envFrom`.
 | AWS IAM (Access Control) | IRSA roles (`modules/irsa`, `modules/eks`) |
 | AWS WAF (Security) | `terraform/modules/waf` (REGIONAL + CLOUDFRONT web ACLs) |
 
-## CI/CD Pipeline
-| Diagram | Implementation |
-|---|---|
-| Github → Pipelines → Build & Test → Docker → Push to ECR | `.github-ci.yml` |
-| Deploy to EKS (Argo CD / Helm) | GitOps tag-bump commit → Argo CD auto-sync |
-| (GitHub alternative) | `.github/workflows/ci.yaml` |
+## CI/CD Pipeline (GitHub Actions, two-repo GitOps)
+Application source and infrastructure/config live in **separate repos**. Images
+are built in the **app repos**; this repo is the **GitOps config repo** and only
+validates + is the deploy target.
+
+| Stage | Where | Implementation |
+|---|---|---|
+| Build & Test → Docker → Trivy scan → Push to ECR | **app repo** | `ci-templates/github-actions-app.yml` (copied in as `.github/workflows/deploy.yml`) |
+| Bump `image.tag` → open PR to config repo | **app repo** | same template (PR-based, reviewable) |
+| Deploy to EKS (Argo CD / Helm) | **config repo** | merge PR → Argo CD auto-syncs `helm-charts/<svc>` |
+| Validate IaC + charts + manifests | **config repo** | `.github/workflows/ci.yaml` (terraform validate, helm lint, YAML checks) |
+
+```
+ app repo  ──build/scan/push──►  ECR
+    │
+    └──opens PR (image.tag)──►  config repo (this)  ──Argo CD sync──►  EKS
+```
+This repo never runs `docker` or `kubectl`; Argo CD is the only thing that
+deploys, driven by merges to `helm-charts/**`.
 
 ## Monitoring & Observability
 | Diagram | Implementation (`modules/addons`) |
