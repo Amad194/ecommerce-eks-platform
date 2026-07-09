@@ -2,6 +2,8 @@ SHELL := /bin/bash
 REGION ?= us-east-1
 TF_PROD := terraform/environments/prod
 CHARTS  := frontend magento api microservices worker
+# State bucket from `make bootstrap` output (or export TF_STATE_BUCKET).
+TF_STATE_BUCKET ?=
 
 .PHONY: help
 help:
@@ -15,8 +17,9 @@ bootstrap: ## Create the remote-state bucket + lock table (run once)
 	terraform -chdir=terraform/bootstrap apply
 
 .PHONY: init
-init: ## terraform init (prod)
-	terraform -chdir=$(TF_PROD) init
+init: ## terraform init (prod) — requires TF_STATE_BUCKET
+	@test -n "$(TF_STATE_BUCKET)" || { echo "ERROR: set TF_STATE_BUCKET (see 'make bootstrap' output)"; exit 1; }
+	terraform -chdir=$(TF_PROD) init -backend-config="bucket=$(TF_STATE_BUCKET)"
 
 .PHONY: plan
 plan: ## terraform plan (prod)

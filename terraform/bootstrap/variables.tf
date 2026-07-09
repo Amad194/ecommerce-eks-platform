@@ -9,3 +9,15 @@ variable "region" {
   type        = string
   default     = "us-east-1"
 }
+
+variable "enable_github_oidc" {
+  description = "Create the GitHub OIDC provider + terraform-ci IAM role for the pipeline."
+  type        = bool
+  default     = true
+}
+
+variable "github_repo" {
+  description = "owner/repo allowed to assume the CI role via OIDC."
+  type        = string
+  default     = "Amad194/ecommerce-eks-platform"
+}

@@ -92,6 +92,19 @@ validates + is the deploy target.
 This repo never runs `docker` or `kubectl`; Argo CD is the only thing that
 deploys, driven by merges to `helm-charts/**`.
 
+### Infrastructure pipeline (`.github/workflows/terraform.yml`)
+Separate from the workload/GitOps flow above — this manages the **AWS infra**:
+
+| Trigger | Action |
+|---|---|
+| PR touching `terraform/**` | `terraform plan` → posted as a PR comment + job summary |
+| Merge to `main` | `terraform apply` — gated by the `production` GitHub Environment (required reviewer) |
+| `workflow_dispatch` | manual `plan` / `apply` / `destroy` |
+
+Auth is **GitHub OIDC** → the `terraform-ci` IAM role (created by
+`terraform/bootstrap`); no static AWS keys. State is the S3 backend (bucket
+injected at `init` via `-backend-config`, so the account ID stays out of git).
+
 ## Monitoring & Observability
 | Diagram | Implementation (`modules/addons`) |
 |---|---|

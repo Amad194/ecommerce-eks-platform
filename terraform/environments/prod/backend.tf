@@ -1,17 +1,17 @@
 ###############################################################################
-# Remote state backend.
-# The bucket/table below are created by terraform/bootstrap. If you changed the
-# project name or use a different account, update these values (the bootstrap
-# output prints the exact names).
+# Remote state backend (partial config).
+# The bucket name is account-specific, so it is supplied at init time rather
+# than committed here:
 #
-# NOTE: <ACCOUNT_ID> must be replaced with your AWS account ID because S3 bucket
-# names are globally unique. Run `terraform -chdir=terraform/bootstrap output`
-# to get the exact bucket name.
+#   terraform init -backend-config="bucket=<state-bucket-from-bootstrap>"
+#
+# (The CI pipeline passes this from the TF_STATE_BUCKET secret; the Makefile
+# passes it from $TF_STATE_BUCKET. The bucket + lock table are created by
+# terraform/bootstrap.)
 ###############################################################################
 
 terraform {
   backend "s3" {
-    bucket         = "ecommerce-tfstate-<ACCOUNT_ID>"
     key            = "prod/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "ecommerce-tflock"

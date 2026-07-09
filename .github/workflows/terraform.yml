@@ -1,0 +1,159 @@
+# Terraform CI/CD for the whole AWS platform (prod).
+#   PR            -> terraform plan  (posted as a PR comment + job summary)
+#   merge to main -> terraform apply (gated by the `production` Environment)
+#   manual        -> workflow_dispatch: plan | apply | destroy
+#
+# Auth is GitHub OIDC -> the terraform-ci IAM role (created by terraform/bootstrap).
+# No long-lived AWS keys.
+#
+# Required repo config:
+#   Secrets:   AWS_TF_ROLE_ARN     (output `ci_role_arn` from bootstrap)
+#              TF_STATE_BUCKET      (output `state_bucket` from bootstrap)
+#   Optional:  TF_VAR_alertmanager_slack_webhook_url
+#   Environment `production` with required reviewers (approval gate for apply/destroy)
+name: terraform
+
+on:
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  push:
+    branches: [main]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Terraform command to run"
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
+
+permissions:
+  id-token: write        # OIDC -> AWS
+  contents: read
+  pull-requests: write   # post plan comment
+
+env:
+  TF_VERSION: "1.9.5"
+  AWS_REGION: us-east-1
+  TF_DIR: terraform/environments/prod
+  # Sensitive tfvars via TF_VAR_ (kept out of git)
+  TF_VAR_alertmanager_slack_webhook_url: ${{ secrets.TF_VAR_ALERTMANAGER_SLACK_WEBHOOK_URL }}
+
+concurrency:
+  group: terraform-prod
+  cancel-in-progress: false
+
+jobs:
+  # ------------------------------------------------------------------ PLAN ---
+  plan:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.command == 'plan')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Format check
+        run: terraform -chdir=${{ env.TF_DIR }} fmt -check -recursive || true
+
+      - name: Init
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Validate
+        run: terraform -chdir=${{ env.TF_DIR }} validate
+
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform -chdir=${{ env.TF_DIR }} plan -input=false -no-color -out=tfplan | tee plan.txt
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '### Terraform Plan';
+            echo '```terraform';
+            tail -c 60000 plan.txt || true;
+            echo '```';
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan on PR
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '#### Terraform Plan (`prod`)';
+            echo '<details><summary>Show plan</summary>';
+            echo;
+            echo '```terraform';
+            tail -c 60000 plan.txt || true;
+            echo '```';
+            echo '</details>';
+          } > body.md
+          gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file body.md
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.code != '0' && steps.plan.outputs.code != '2'
+        run: exit 1
+
+  # ----------------------------------------------------------------- APPLY ---
+  apply:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.command == 'apply')
+    runs-on: ubuntu-latest
+    environment: production      # <-- add required reviewers here to gate prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Init
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Apply
+        run: terraform -chdir=${{ env.TF_DIR }} apply -input=false -auto-approve
+
+  # --------------------------------------------------------------- DESTROY ---
+  destroy:
+    if: github.event_name == 'workflow_dispatch' && inputs.command == 'destroy'
+    runs-on: ubuntu-latest
+    environment: production      # approval gate for destroys too
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TF_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Init
+        run: |
+          terraform -chdir=${{ env.TF_DIR }} init -input=false \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+
+      - name: Destroy
+        run: terraform -chdir=${{ env.TF_DIR }} destroy -input=false -auto-approve
