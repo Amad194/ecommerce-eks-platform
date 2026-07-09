@@ -1,0 +1,18 @@
+# Normalize line endings to LF for all text files (avoids CRLF churn on Windows).
+* text=auto eol=lf
+
+# Explicit LF for code/config that must stay LF on every platform.
+*.tf     text eol=lf
+*.tpl    text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.md     text eol=lf
+*.sh     text eol=lf
+*.json   text eol=lf
+Makefile text eol=lf
+
+# Treat these as binary (never touch line endings).
+*.png binary
+*.jpg binary
+*.gz  binary
+*.tgz binary
